@@ -1,0 +1,107 @@
+# Practical Machine Learning_Peer Assessment: Prediction on the manner in which people do the exercise
+
+
+## Synopsis
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+In this report we aim to predict the manner in which people did the exercise. There is the "classe" variable in the training set. We will use any of the other variables to predict with. This report will include: 1. how the model is built; 2. how cross validation is used; 3. what the expected out of sample error is; 4. why such choices are made. We will also use this prediction model to predict 20 different test cases. 
+
+##  Data Processing
+In this project, our goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+
+In this section, we first download the dataset and load data into trainRaw and testRaw data frame. The trainRaw data set will be split into a training data set (70%) and a validation data set (30%). The validation set(Testing) will be used for the cross validation next.
+```{r, echo=T}
+if(!file.exists("./data")){dir.create("./data")}
+fileUrl1 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+fileUrl2 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(fileUrl1, destfile = "./data/training.csv", method = "curl")
+download.file(fileUrl2, destfile = "./data/testing.csv", method = "curl")
+trainRaw <- read.csv("./data/training.csv")
+testRaw <- read.csv("./data/testing.csv")
+
+library(caret)
+inTrain <- createDataPartition(y=trainRaw$classe, p=0.7, list = FALSE)
+training <- trainRaw[inTrain, ]
+testing <- trainRaw[-inTrain, ]
+```
+Then we remove the columns that contain NA missing values, which could not be used for prediction.
+```{r, echo=TRUE}
+training <- training[, colSums(is.na(training)) == 0] 
+```
+Then we remove covariates with no variability/prediction value
+```{r, echo=TRUE}
+nsv <- nearZeroVar(training, saveMetrics = TRUE)
+training <- training[, !nsv$nzv]
+dim(training)
+```
+After these operations, we are left with `r format(dim(training), scientific=F)` observations and variables respectively in our training set for building predictive models.
+
+## Exploratory Analysis
+Correlation Analysis
+```{r, echo=TRUE}
+which(names(training)=="classe")
+correlation <- caret::findCorrelation(cor(cbind(training[, 3:4], training[, 6:58])), cutoff=0.8)
+correlationMatrix <- data.frame(cor(cbind(training[, 3:4], training[, 6:58])))
+names(training)[correlation]
+```
+Feature Plot
+```{r, echo=TRUE, eval=FALSE}
+featurePlot(x=training, y=training$classe, plot = "pairs")
+```
+Pre-Processing & Cross Validation Settings
+```{r, echo=TRUE}    
+trControl <- trainControl(method="cv", number=7, verboseIter=F, preProcOptions="pca", allowParallel=T);
+```
+
+## Model Selection
+In this section, we will examine 5 models including a simple multi-linear model using bayesglm method, recursive partitioning(rpart), random forest, , 
+```{r, echo=TRUE}
+set.seed(123)
+bayesglm <- train(classe~., data=training, method="bayesglm", trControl=trControl) # Bayes Generalized Linear Model
+
+rpart <- train(classe~., data=training, method="rpart", trControl=trControl) #Predicting with trees 
+
+rf <- train(classe~., data=training, method="rf", trControl=trControl)  # Random Forest
+
+boosting <- train(classe~., data=training, method="gbm", trControl=trControl) # Logit Boosted Model
+
+lda <- train(classe~., data=training, method="lda", trControl=trControl) # lda
+
+```
+Then we look at Accuracy of each model
+```{r, echo=TRUE}
+max(bayesglm$results$Accuracy)  # Bayes Generalized Linear Model
+max(rpart$results$Accuracy) # Recursive Partitioning & Regression Trees
+max(rf$results$Accuracy) # Random Forest
+max(boosting$results$Accuracy) # boosting
+max(lda$results$Accuracy) # lda
+```
+We found that the top 3 accurate models are: lda, boosting and random forsest, they all have a accurate rate close to one. We will focus on these three models in the following sections.
+
+## Cross Validation and Out of Sample Error
+```{r, echo=T}
+ldapr <- predict(lda, newdata = testing);  # Random Forest
+bstpr <- predict(boosting, newdata = testing);  # boosting model
+rfpr <- predict(rf, newdata = testing) # random forest Model
+
+## tabulate out of sample error for algorithms
+table(ldapr, testing$classe)
+table(bstpr, testing$classe)
+table(rfpr, testing$classe)
+
+## accuracy and total correct for algorithms
+rbind("LDA" = c(Accuracy = mean(ldapr==testing$classe),
+    "Total Correct" = sum(ldapr==testing$classe)),
+    "Boosting" = c(Accuracy = mean(bstpr==testing$classe),
+    "Total Correct" = sum(bstpr==testing$classe)),
+    "Random Forest" = c(Accuracy = mean(rfpr==testing$classe),
+    "Total Correct" = sum(rfpr==testing$classe)))
+```
+LINEAR DISCRIMINANT ANALYSIS turned out to be the most accurate model, with an accurate rate of 0.9998301 on the testing set.
+
+## Application on testRaw data
+```{r, echo=T}
+prd <- predict(lda, newdata = testRaw)
+table(prd, testRaw$problem_id)
+```
+Our prediction model was quite accurate and we were able right answers for all the testing set.
